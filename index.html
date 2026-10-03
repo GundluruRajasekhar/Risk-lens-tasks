@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RiskLens: Risk and Regulatory Copilot</title>
+<style>
+:root{--ink:#14202b;--paper:#eef2f3;--card:#fff;--line:#cfd9dc;--teal:#0f6e7a;--amber:#b87800;--red:#b3261e;--muted:#5a6b75}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+h1,h2,h3{font-family:Georgia,serif;margin:0}
+header{background:var(--ink);color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header h1{font-size:22px}header span{font-size:13px;color:#9fb4bf}
+main{display:grid;grid-template-columns:320px 1fr;gap:20px;padding:20px;max-width:1200px;margin:auto}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px}
+.sig{border-left:4px solid var(--line);padding:8px 10px;margin:8px 0;cursor:pointer;background:#f7fafa}
+.sig:hover,.sig:focus{background:#e6f0f1;outline:2px solid var(--teal)}
+.sig.high{border-color:var(--red)}.sig.med{border-color:var(--amber)}.sig.low{border-color:var(--teal)}
+.sig b{display:block;font-size:14px}.sig small{color:var(--muted)}
+textarea{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:4px;resize:vertical}
+textarea:focus,button:focus-visible{outline:2px solid var(--teal)}
+button{font:inherit;border:1px solid var(--teal);background:var(--teal);color:#fff;padding:8px 14px;border-radius:4px;cursor:pointer}
+button.ghost{background:#fff;color:var(--teal)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chips button{font-size:13px;padding:4px 10px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}
+th,td{border-bottom:1px solid var(--line);padding:6px;text-align:left}
+.wrap{overflow-x:auto}
+.tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;color:#fff}
+.t-high{background:var(--red)}.t-med{background:var(--amber)}.t-low{background:var(--teal)}
+.audit{margin-top:14px;border:1px dashed var(--teal);padding:12px;font-size:12.5px;background:#f2f9fa;word-break:break-all}
+.audit div{margin:2px 0}.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.note{font-size:12px;color:var(--muted);margin-top:14px}
+</style></head><body>
+<header><h1>RiskLens</h1><span>Fraud, liquidity, credit and regulatory copilot. Demo data only.</span></header>
+<main>
+<aside class="panel"><h2>Live signals</h2><div id="feed"></div></aside>
+<section>
+<div class="panel"><h2>Ask a question</h2>
+<textarea id="q" rows="2" placeholder="e.g. Show suspicious transactions above 10 lakh today"></textarea>
+<div class="row"><button id="go">Ask RiskLens</button></div>
+<div class="chips" id="chips"></div></div>
+<div class="panel" id="out" style="margin-top:20px"><p style="color:var(--muted)">Pick a signal or ask a question. Answers include the rules used, the data source and a tamper-evident hash for audit.</p></div>
+</section></main>
+<script>
+const TX=[
+{id:"T1041",acct:"A-7731",amt:1850000,ch:"UPI",geo:"Lagos",flags:["R-F02 new device","R-F05 foreign geo"],score:94},
+{id:"T1042",acct:"A-2210",amt:980000,ch:"Cash",geo:"Hyderabad",flags:["R-A01 structuring (3 deposits under 10L)"],score:88},
+{id:"T1043",acct:"A-5589",amt:1250000,ch:"RTGS",geo:"Mumbai",flags:["R-A03 dormant account reactivated"],score:81},
+{id:"T1044",acct:"A-9012",amt:42000,ch:"Card",geo:"Dubai",flags:["R-F04 velocity: 9 txns in 10 min"],score:76},
+{id:"T1045",acct:"A-1180",amt:2300000,ch:"NEFT",geo:"Delhi",flags:["R-A02 high-risk counterparty"],score:72},
+{id:"T1046",acct:"A-3304",amt:15000,ch:"UPI",geo:"Pune",flags:[],score:12}];
+const LIQ={LCR:118,LCRmin:100,NSFR:104,NSFRmin:100,out7:"Rs 412 cr",gap:"Rs -38 cr in 1-7 day bucket"};
+const CR=[{seg:"Retail unsecured",gnpa:4.8,s2:11.2,ecl:6.1},{seg:"MSME",gnpa:3.9,s2:9.4,ecl:4.8},{seg:"Housing",gnpa:1.4,s2:4.1,ecl:1.2},{seg:"Vehicle",gnpa:2.7,s2:7.5,ecl:3.0}];
+const CAP={CET1:12.4,T1:13.6,CRAR:16.2,min:11.5,lev:7.1};
+const SIG=[
+["high","Possible account takeover: A-7731","Rs 18.5L UPI to Lagos, new device","fraud transactions"],
+["high","Structuring pattern: A-2210","3 cash deposits just below Rs 10L","aml str"],
+["med","1-7 day liquidity gap widening","LCR 118%, buffer shrinking","liquidity lcr"],
+["med","Retail unsecured stress rising","GNPA 4.8%, Stage 2 at 11.2%","credit npa"],
+["low","CRAR 16.2%, above 11.5% minimum","Capital buffer comfortable","basel capital"]];
+const $=id=>document.getElementById(id);
+const inr=n=>"Rs "+n.toLocaleString("en-IN");
+const tag=s=>`<span class="tag t-${s>=85?'high':s>=70?'med':'low'}">${s}</span>`;
+function tbl(h,r){return `<div class="wrap"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${r.map(x=>`<tr>${x.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`}
+function intent(q){q=q.toLowerCase();
+if(/str|sar|aml|launder|structur|dormant/.test(q))return"aml";
+if(/fraud|suspicious|transaction|takeover|velocity/.test(q))return"fraud";
+if(/liquid|lcr|nsfr|cash flow|gap/.test(q))return"liq";
+if(/npa|credit|ecl|stage|default|loan/.test(q))return"credit";
+if(/basel|capital|crar|cet1|leverage/.test(q))return"basel";return"none"}
+const A={
+fraud:q=>{const min=/10 ?lakh|1000000/.test(q)?1000000:0,r=TX.filter(t=>t.score>=70&&t.amt>=min);
+return{title:"Suspicious transactions",rules:["R-F02","R-F04","R-F05"],src:"txn_stream (sample)",
+body:`<p>${r.length} transactions need review${min?" above Rs 10 lakh":""}. Highest risk: <b>${r[0]?.id}</b> (${inr(r[0]?.amt||0)} via ${r[0]?.ch}, ${r[0]?.geo}).</p>`+tbl(["Txn","Account","Amount","Channel","Why flagged","Score"],r.map(t=>[t.id,t.acct,inr(t.amt),t.ch,t.flags.join("; "),tag(t.score)]))}},
+aml:q=>{const r=TX.filter(t=>t.flags.some(f=>f.startsWith("R-A")));
+return{title:"AML suspicious transaction report (draft)",rules:["R-A01","R-A02","R-A03","PMLA s.12","FIU-IND STR format"],src:"txn_stream + KYC (sample)",
+body:`<p>${r.length} cases meet STR criteria. Draft narrative below needs analyst sign-off before filing with FIU-IND.</p>`+tbl(["Case","Account","Amount","Trigger","Draft narrative"],r.map(t=>[t.id,t.acct,inr(t.amt),t.flags.join("; "),`${t.ch} activity of ${inr(t.amt)} in ${t.geo} matched ${t.flags[0].split(" ")[0]}; customer profile does not explain it.`]))}},
+liq:()=>({title:"Liquidity position",rules:["Basel III LCR","Basel III NSFR","RBI liquidity circular"],src:"alm_buckets (sample)",
+body:`<p>LCR is <b>${LIQ.LCR}%</b> against a ${LIQ.LCRmin}% minimum, NSFR ${LIQ.NSFR}%. Watch the short end: ${LIQ.gap}. Expected 7-day outflow is ${LIQ.out7}.</p>`+tbl(["Metric","Actual","Minimum","Status"],[["LCR",LIQ.LCR+"%",LIQ.LCRmin+"%",'<span class="tag t-low">Pass</span>'],["NSFR",LIQ.NSFR+"%",LIQ.NSFRmin+"%",'<span class="tag t-med">Thin buffer</span>']])}),
+credit:()=>({title:"Credit risk by segment",rules:["IRACP norms","Ind AS 109 staging"],src:"loan_book (sample)",
+body:`<p>Retail unsecured is the weakest segment: GNPA ${CR[0].gnpa}% and Stage 2 at ${CR[0].s2}%. Housing is the healthiest.</p>`+tbl(["Segment","GNPA %","Stage 2 %","ECL cover %"],CR.map(c=>[c.seg,c.gnpa,c.s2,c.ecl]))}),
+basel:()=>({title:"Capital adequacy",rules:["Basel III Pillar 1","RBI capital norms"],src:"capital_register (sample)",
+body:`<p>CRAR is <b>${CAP.CRAR}%</b>, ${(CAP.CRAR-CAP.min).toFixed(1)} points above the ${CAP.min}% minimum.</p>`+tbl(["Ratio","Value %"],[["CET1",CAP.CET1],["Tier 1",CAP.T1],["CRAR",CAP.CRAR],["Leverage",CAP.lev]])}),
+none:()=>({title:"Not sure what you mean",rules:[],src:"none",body:"<p>Try asking about fraud, AML or STR, liquidity or LCR, credit or NPA, or Basel capital.</p>"})};
+async function sha(s){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+let last=null;
+async function ask(q){q=q.trim();if(!q)return;$("q").value=q;
+const r=A[intent(q)](q.toLowerCase());
+const rec={id:"RL-"+Date.now().toString(36).toUpperCase(),time:new Date().toISOString(),question:q,output:r.title,rules:r.rules,source:r.src,user:"analyst.demo"};
+rec.hash=await sha(JSON.stringify(rec)+r.body);last={rec,body:r.body};
+$("out").innerHTML=`<h2>${r.title}</h2>${r.body}<div class="audit"><div><b>Audit record ${rec.id}</b></div><div>Time: ${rec.time}</div><div>Question: ${rec.question}</div><div>Rules: ${rec.rules.join(", ")||"none"}</div><div>Source: ${rec.source}</div><div>SHA-256: ${rec.hash}</div></div>
+<div class="row"><button id="dj">Download audit JSON</button><button class="ghost" id="pr">Print report</button></div>
+<p class="note">Draft for analyst review. Demo data, not real accounts.</p>`;
+$("dj").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify({...last.rec,html:last.body},null,2)],{type:"application/json"}));a.download=last.rec.id+".json";a.click()};
+$("pr").onclick=()=>print()}
+$("feed").innerHTML=SIG.map((s,i)=>`<div class="sig ${s[0]}" tabindex="0" data-i="${i}"><b>${s[1]}</b><small>${s[2]}</small></div>`).join("");
+document.querySelectorAll(".sig").forEach(e=>{const f=()=>ask(SIG[e.dataset.i][3]);e.onclick=f;e.onkeydown=k=>{if(k.key==="Enter")f()}});
+["Show suspicious transactions above 10 lakh","Draft an STR for structuring cases","What is our LCR and 7-day gap?","Which segment has the highest NPA?","Are we above Basel capital minimums?"].forEach(t=>{const b=document.createElement("button");b.className="ghost";b.textContent=t;b.onclick=()=>ask(t);$("chips").appendChild(b)});
+$("go").onclick=()=>ask($("q").value);
+</script></body></html>
